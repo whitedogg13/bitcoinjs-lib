@@ -1,4 +1,32 @@
 'use strict';
+var __awaiter =
+  (this && this.__awaiter) ||
+  function(thisArg, _arguments, P, generator) {
+    return new (P || (P = Promise))(function(resolve, reject) {
+      function fulfilled(value) {
+        try {
+          step(generator.next(value));
+        } catch (e) {
+          reject(e);
+        }
+      }
+      function rejected(value) {
+        try {
+          step(generator['throw'](value));
+        } catch (e) {
+          reject(e);
+        }
+      }
+      function step(result) {
+        result.done
+          ? resolve(result.value)
+          : new P(function(resolve) {
+              resolve(result.value);
+            }).then(fulfilled, rejected);
+      }
+      step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+  };
 Object.defineProperty(exports, '__esModule', { value: true });
 const baddress = require('./address');
 const bufferutils_1 = require('./bufferutils');
@@ -161,6 +189,30 @@ class TransactionBuilder {
     witnessScript,
   ) {
     trySign(
+      getSigningData(
+        this.network,
+        this.__INPUTS,
+        this.__needsOutputs.bind(this),
+        this.__TX,
+        signParams,
+        keyPair,
+        redeemScript,
+        hashType,
+        witnessValue,
+        witnessScript,
+        this.__USE_LOW_R,
+      ),
+    );
+  }
+  signAsync(
+    signParams,
+    keyPair,
+    redeemScript,
+    hashType,
+    witnessValue,
+    witnessScript,
+  ) {
+    return trySign(
       getSigningData(
         this.network,
         this.__INPUTS,
@@ -951,22 +1003,34 @@ function trySign({
   hashType,
   useLowR,
 }) {
-  // enforce in order signing of public keys
-  let signed = false;
-  for (const [i, pubKey] of input.pubkeys.entries()) {
-    if (!ourPubKey.equals(pubKey)) continue;
-    if (input.signatures[i]) throw new Error('Signature already exists');
-    // TODO: add tests
-    if (ourPubKey.length !== 33 && input.hasWitness) {
-      throw new Error(
-        'BIP143 rejects uncompressed public keys in P2WPKH or P2WSH',
-      );
+  return __awaiter(this, void 0, void 0, function*() {
+    // enforce in order signing of public keys
+    let signed = false;
+    for (const [i, pubKey] of input.pubkeys.entries()) {
+      if (!ourPubKey.equals(pubKey)) continue;
+      if (input.signatures[i]) throw new Error('Signature already exists');
+      // TODO: add tests
+      if (ourPubKey.length !== 33 && input.hasWitness) {
+        throw new Error(
+          'BIP143 rejects uncompressed public keys in P2WPKH or P2WSH',
+        );
+      }
+      const signature = keyPair.sign(signatureHash, useLowR);
+      if (signature instanceof Buffer) {
+        input.signatures[i] = bscript.signature.encode(signature, hashType);
+        signed = true;
+      } else {
+        // now it's a promise from SignerAsync
+        const resolvedSignature = yield signature;
+        input.signatures[i] = bscript.signature.encode(
+          resolvedSignature,
+          hashType,
+        );
+        signed = true;
+      }
     }
-    const signature = keyPair.sign(signatureHash, useLowR);
-    input.signatures[i] = bscript.signature.encode(signature, hashType);
-    signed = true;
-  }
-  if (!signed) throw new Error('Key pair cannot sign for this input');
+    if (!signed) throw new Error('Key pair cannot sign for this input');
+  });
 }
 function getSigningData(
   network,

@@ -2,7 +2,7 @@ import * as baddress from './address';
 import { reverseBuffer } from './bufferutils';
 import * as classify from './classify';
 import * as bcrypto from './crypto';
-import { Signer } from './ecpair';
+import { Signer, SignerAsync } from './ecpair';
 import * as ECPair from './ecpair';
 import { Network } from './networks';
 import * as networks from './networks';
@@ -74,7 +74,7 @@ interface TxbOutput {
 interface TxbSignArg {
   prevOutScriptType: string;
   vin: number;
-  keyPair: Signer;
+  keyPair: Signer | SignerAsync;
   redeemScript?: Buffer;
   hashType?: number;
   witnessValue?: number;
@@ -251,6 +251,31 @@ export class TransactionBuilder {
     witnessScript?: Buffer,
   ): void {
     trySign(
+      getSigningData(
+        this.network,
+        this.__INPUTS,
+        this.__needsOutputs.bind(this),
+        this.__TX,
+        signParams,
+        keyPair,
+        redeemScript,
+        hashType,
+        witnessValue,
+        witnessScript,
+        this.__USE_LOW_R,
+      ),
+    );
+  }
+
+  signAsync(
+    signParams: number | TxbSignArg,
+    keyPair?: SignerAsync,
+    redeemScript?: Buffer,
+    hashType?: number,
+    witnessValue?: number,
+    witnessScript?: Buffer,
+  ): Promise<void> {
+    return trySign(
       getSigningData(
         this.network,
         this.__INPUTS,
@@ -1168,14 +1193,14 @@ function checkSignArgs(inputs: TxbInput[], signParams: TxbSignArg): void {
   }
 }
 
-function trySign({
+async function trySign({
   input,
   ourPubKey,
   keyPair,
   signatureHash,
   hashType,
   useLowR,
-}: SigningData): void {
+}: SigningData): Promise<void> {
   // enforce in order signing of public keys
   let signed = false;
   for (const [i, pubKey] of input.pubkeys!.entries()) {
@@ -1190,8 +1215,15 @@ function trySign({
     }
 
     const signature = keyPair.sign(signatureHash, useLowR);
-    input.signatures![i] = bscript.signature.encode(signature, hashType);
-    signed = true;
+    if (signature instanceof Buffer) {
+      input.signatures![i] = bscript.signature.encode(signature, hashType);
+      signed = true;
+    } else {
+      // now it's a promise from SignerAsync
+      const resolvedSignature = await signature;
+      input.signatures![i] = bscript.signature.encode(resolvedSignature, hashType);
+      signed = true;
+    }
   }
 
   if (!signed) throw new Error('Key pair cannot sign for this input');
@@ -1200,7 +1232,7 @@ function trySign({
 interface SigningData {
   input: TxbInput;
   ourPubKey: Buffer;
-  keyPair: Signer;
+  keyPair: Signer | SignerAsync;
   signatureHash: Buffer;
   hashType: number;
   useLowR: boolean;
@@ -1214,7 +1246,7 @@ function getSigningData(
   needsOutputs: HashTypeCheck,
   tx: Transaction,
   signParams: number | TxbSignArg,
-  keyPair?: Signer,
+  keyPair?: Signer | SignerAsync,
   redeemScript?: Buffer,
   hashType?: number,
   witnessValue?: number,

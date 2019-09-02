@@ -9,7 +9,97 @@ function rng () {
   return Buffer.from('YT8dAtK4d16A3P1z+TpwB2jJ4aFH3g9M1EioIBkLEV4=', 'base64')
 }
 
+const ecc = require('tiny-secp256k1');
+const wif = require('wif');
+const NETWORKS = bitcoin.networks;
+
+class AsyncSigner {
+  constructor(
+    __D,
+    options,
+  ) {
+    this.lowR = false;
+    if (options === undefined) options = {};
+    this.compressed =
+      options.compressed === undefined ? true : options.compressed;
+    this.network = options.network || NETWORKS.bitcoin;
+
+    // asign the private key
+    this.__D = __D;
+  }
+
+  get privateKey() {
+    return this.__D;
+  }
+
+  get publicKey() {
+    if (!this.__Q) {
+      this.__Q = ecc.pointFromScalar(this.__D, this.compressed);
+    }
+    return this.__Q;
+  }
+
+  toWIF() {
+    if (!this.__D) throw new Error('Missing private key');
+    return wif.encode(this.network.wif, this.__D, this.compressed);
+  }
+
+  async sign(hash, lowR) {
+    if (!this.__D) throw new Error('Missing private key');
+    if (lowR === undefined) lowR = this.lowR;
+    if (lowR === false) {
+      return ecc.sign(hash, this.__D);
+    } else {
+      let sig = ecc.sign(hash, this.__D);
+      const extraData = Buffer.alloc(32, 0);
+      let counter = 0;
+      // if first try is lowR, skip the loop
+      // for second try and on, add extra entropy counting up
+      while (sig[0] > 0x7f) {
+        counter++;
+        extraData.writeUIntLE(counter, 0, 6);
+        sig = ecc.signWithEntropy(hash, this.__D, extraData);
+      }
+      return sig;
+    }
+  }
+
+  verify(hash, signature) {
+    return ecc.verify(hash, this.publicKey, signature);
+  }
+
+  dump() {
+    console.log('publicKey', this.publicKey);
+    console.log('privateKey', this.privateKey);
+  }
+}
+
 describe('bitcoinjs-lib (transactions)', () => {
+  it('(async signer) can create a 1-to-1 Transaction', async () => {
+    const txb = new bitcoin.TransactionBuilder()
+
+    // create an async signer
+    const asyncSigner = new AsyncSigner(
+      bitcoin.ECPair.fromWIF('L1uyy5qTuGrVXrmrsvHWHgVzW9kKdrp27wBC7Vs6nZDTF2BRUVwy')
+        .privateKey
+    );
+    asyncSigner.dump();
+
+    txb.setVersion(1)
+    txb.addInput('61d520ccb74288c96bc1a2b20ea1c0d5a704776dd0164a396efec3ea7040349d', 0) // Alice's previous transaction output, has 15000 satoshis
+    txb.addOutput('1cMh228HTCiwS8ZsaakH8A8wze1JR5ZsP', 12000)
+    // (in)15000 - (out)12000 = (fee)3000, this is the miner fee
+
+    await txb.signAsync({
+      prevOutScriptType: 'p2pkh',
+      vin: 0,
+      keyPair: asyncSigner 
+    });
+
+    // prepare for broadcast to the Bitcoin network, see "can broadcast a Transaction" below
+    assert.strictEqual(txb.build().toHex(), '01000000019d344070eac3fe6e394a16d06d7704a7d5c0a10eb2a2c16bc98842b7cc20d561000000006b48304502210088828c0bdfcdca68d8ae0caeb6ec62cd3fd5f9b2191848edae33feb533df35d302202e0beadd35e17e7f83a733f5277028a9b453d525553e3f5d2d7a7aa8010a81d60121029f50f51d63b345039a290c94bffd3180c99ed659ff6ea6b1242bca47eb93b59fffffffff01e02e0000000000001976a91406afd46bcdfd22ef94ac122aa11f241244a37ecc88ac00000000')
+  })
+
   it('can create a 1-to-1 Transaction', () => {
     const alice = bitcoin.ECPair.fromWIF('L1uyy5qTuGrVXrmrsvHWHgVzW9kKdrp27wBC7Vs6nZDTF2BRUVwy')
     const txb = new bitcoin.TransactionBuilder()
