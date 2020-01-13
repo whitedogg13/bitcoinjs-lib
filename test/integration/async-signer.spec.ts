@@ -2,13 +2,26 @@ import * as assert from 'assert';
 // import * as bip32 from 'bip32';
 import { describe, it } from 'mocha';
 import * as bitcoin from '../..';
+import {
+  Signer,
+  SignerAsync,
+} from '../..';
 import { regtestUtils } from './_regtest';
 // const rng = require('randombytes');
 const regtest = regtestUtils.network;
-const {
-  ECPair,
-  TransactionBuilder,
-} = bitcoin;
+const { ECPair, TransactionBuilder } = bitcoin;
+
+function createSignerAsync(signer: Signer): SignerAsync {
+  async function sign(hash: Buffer, lowR?: boolean): Promise<Buffer> {
+    return Promise.resolve(signer.sign(hash, lowR));
+  }
+
+  return {
+    sign,
+    network: signer.network,
+    publicKey: signer.publicKey,
+  };
+}
 
 describe('async-signer', () => {
   it('supports the alternative abstract interface { publicKey, sign }', () => {
@@ -102,8 +115,12 @@ describe('async-signer', () => {
     // Alice signs each input with the respective private keys
     // signInput and signInputAsync are better
     // (They take the input index explicitly as the first arg)
-    signer1.signAllInputs(alice1.keys[0]);
-    signer2.signAllInputs(alice2.keys[0]);
+    // signer1.signAllInputs(alice1.keys[0]);
+    // signer2.signAllInputs(alice2.keys[0]);
+
+    console.log('SignerAsync test');
+    await signer1.signAllInputsAsync(createSignerAsync(alice1.keys[0]));
+    await signer2.signAllInputsAsync(createSignerAsync(alice2.keys[0]));
 
     // If your signer object's sign method returns a promise, use the following
     // await signer2.signAllInputsAsync(alice2.keys[0])
