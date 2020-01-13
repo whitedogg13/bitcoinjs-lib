@@ -2,7 +2,7 @@ import * as baddress from './address';
 import { reverseBuffer } from './bufferutils';
 import * as classify from './classify';
 import * as bcrypto from './crypto';
-import { Signer } from './ecpair';
+import { Signer, SignerAsync } from './ecpair';
 import * as ECPair from './ecpair';
 import { Network } from './networks';
 import * as networks from './networks';
@@ -74,7 +74,7 @@ interface TxbOutput {
 interface TxbSignArg {
   prevOutScriptType: string;
   vin: number;
-  keyPair: Signer;
+  keyPair: Signer | SignerAsync;
   redeemScript?: Buffer;
   hashType?: number;
   witnessValue?: number;
@@ -251,6 +251,31 @@ export class TransactionBuilder {
     witnessScript?: Buffer,
   ): void {
     trySign(
+      getSigningData(
+        this.network,
+        this.__INPUTS,
+        this.__needsOutputs.bind(this),
+        this.__TX,
+        signParams,
+        keyPair,
+        redeemScript,
+        hashType,
+        witnessValue,
+        witnessScript,
+        this.__USE_LOW_R,
+      ),
+    );
+  }
+
+  async signAsync(
+    signParams: number | TxbSignArg,
+    keyPair?: Signer,
+    redeemScript?: Buffer,
+    hashType?: number,
+    witnessValue?: number,
+    witnessScript?: Buffer,
+  ): Promise<void> {
+    return trySignAsync(
       getSigningData(
         this.network,
         this.__INPUTS,
@@ -1190,6 +1215,45 @@ function trySign({
     }
 
     const signature = keyPair.sign(signatureHash, useLowR);
+    if (signature instanceof Promise) {
+      throw new Error('SignerAsync is not allowed');
+    }
+
+    input.signatures![i] = bscript.signature.encode(signature, hashType);
+    signed = true;
+  }
+
+  if (!signed) throw new Error('Key pair cannot sign for this input');
+}
+
+async function trySignAsync({
+  input,
+  ourPubKey,
+  keyPair,
+  signatureHash,
+  hashType,
+  useLowR,
+}: SigningData): Promise<void> {
+  // enforce in order signing of public keys
+  let signed = false;
+  for (const [i, pubKey] of input.pubkeys!.entries()) {
+    if (!ourPubKey.equals(pubKey!)) continue;
+    if (input.signatures![i]) throw new Error('Signature already exists');
+
+    // TODO: add tests
+    if (ourPubKey.length !== 33 && input.hasWitness) {
+      throw new Error(
+        'BIP143 rejects uncompressed public keys in P2WPKH or P2WSH',
+      );
+    }
+
+    let signature = keyPair.sign(signatureHash, useLowR);
+
+    if (signature instanceof Buffer) {
+      throw new Error('Signer is not allowed');
+    }
+
+    signature = await signature;
     input.signatures![i] = bscript.signature.encode(signature, hashType);
     signed = true;
   }
@@ -1200,7 +1264,7 @@ function trySign({
 interface SigningData {
   input: TxbInput;
   ourPubKey: Buffer;
-  keyPair: Signer;
+  keyPair: Signer | SignerAsync;
   signatureHash: Buffer;
   hashType: number;
   useLowR: boolean;
@@ -1214,7 +1278,7 @@ function getSigningData(
   needsOutputs: HashTypeCheck,
   tx: Transaction,
   signParams: number | TxbSignArg,
-  keyPair?: Signer,
+  keyPair?: Signer | SignerAsync,
   redeemScript?: Buffer,
   hashType?: number,
   witnessValue?: number,

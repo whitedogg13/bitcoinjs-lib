@@ -2,10 +2,7 @@ import * as assert from 'assert';
 // import * as bip32 from 'bip32';
 import { describe, it } from 'mocha';
 import * as bitcoin from '../..';
-import {
-  Signer,
-  SignerAsync,
-} from '../..';
+import { Signer, SignerAsync } from '../..';
 import { regtestUtils } from './_regtest';
 // const rng = require('randombytes');
 const regtest = regtestUtils.network;
@@ -24,8 +21,8 @@ function createSignerAsync(signer: Signer): SignerAsync {
 }
 
 describe('async-signer', () => {
-  it('supports the alternative abstract interface { publicKey, sign }', () => {
-    const innerKeyPair = {
+  it('supports the alternative abstract interface { publicKey, sign }', async () => {
+    const asyncKeyPair = createSignerAsync({
       publicKey: ECPair.makeRandom({
         rng: (): Buffer => {
           return Buffer.alloc(32, 1);
@@ -34,7 +31,7 @@ describe('async-signer', () => {
       sign: (): Buffer => {
         return Buffer.alloc(64, 0x5f);
       },
-    };
+    });
 
     const txb = new TransactionBuilder();
     txb.setVersion(1);
@@ -43,11 +40,13 @@ describe('async-signer', () => {
       1,
     );
     txb.addOutput('1111111111111111111114oLvT2', 100000);
-    txb.sign({
+
+    await txb.signAsync({
       prevOutScriptType: 'p2pkh',
       vin: 0,
-      keyPair: innerKeyPair,
+      keyPair: asyncKeyPair,
     });
+
     assert.strictEqual(
       txb.build().toHex(),
       '0100000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff' +
