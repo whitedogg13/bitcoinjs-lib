@@ -38,7 +38,8 @@
     "prettier": "prettier 'ts_src/**/*.ts' 'test/**/*.ts' --ignore-path ./.prettierignore",
     "prettierjs": "prettier 'src/**/*.js' --ignore-path ./.prettierignore",
     "test": "npm run build && npm run format:ci && npm run lint && npm run nobuild:coverage",
-    "unit": "npm run build && npm run nobuild:unit"
+    "unit": "npm run build && npm run nobuild:unit",
+    "mytest": "npm run mocha:ts -- --timeout 50000 'test/integration/async-signer.spec.ts'"
   },
   "repository": {
     "type": "git",
